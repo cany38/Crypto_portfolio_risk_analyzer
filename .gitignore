@@ -1,0 +1,62 @@
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Logs and Reports
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+portfolio_report_*.md
+reports/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Node modules (if added later)
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# Build artifacts
+dist/
+build/
+*.min.js
+*.min.css
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.temp/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Misc
+*.bak
+*.backup
+*.old
