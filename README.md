@@ -157,8 +157,6 @@ This tool is for **educational and informational purposes only**. It does not co
 
 <div align="center">
 
-**Built with ❤️ for the crypto community**
-
 *All analysis runs locally in your browser, your data never leaves your device.*
 
 </div>
