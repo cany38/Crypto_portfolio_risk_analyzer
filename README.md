@@ -1,162 +1,53 @@
-# 🔬 Analyzer - Advanced Crypto Portfolio Risk Engine
+# Instagram Usage Time Analyzer
 
-<div align="center">
+Analyzes your Instagram data export ZIP file directly in your browser. Upload the archive, get interactive charts and detailed markdown export of your actual usage duration.
 
-**A fully client-side cryptocurrency portfolio risk analysis engine built with vanilla JavaScript.**
+Built because there is no total usage time metric on Instagram settings. The export file you download from accounts.instagram.com has the data — this tool turns it into minutes, hours and days.
 
-*Real-time fundamental scoring, custody security audits, and severity-based penalty logic, all running locally in your browser.*
+## What it shows
 
-[Features](#-features) • [Tech Stack](#️-tech-stack) • [Getting Started](#-getting-started) • [Configuration](#️-configuration)
+- **Total estimated time** in hours, converted to days
+- **Counted sessions** — how many times you pressed buttons or liked posts inside the same session
+- **Active days** — which calendar days you opened Instagram (not just installed)
+- **Daily average** from first activity to last
+- **Monthly breakdown** — months you lived on the platform vs months you barely touched it
+- **Hourly distribution** — when you are active during the day
+- **Device list** — which mobile model you used over the years
+- **Location map** — where you pressed "login" based on IP geolocation
+- **Markdown report** — download a clean .md file with all tables
 
-</div>
+## How to prepare
 
----
+Download your data from Instagram:
 
-## 📖 Overview
-
-**Analyzer** performs deep fundamental evaluation of digital assets by integrating CoinGecko API for market data, developer activity metrics, and GitHub commit tracking, while cross-referencing the DeFiLlama Hacks database for historical security incidents.
-
-The system runs a **two-phase scoring architecture**:
-- **Phase 1** assesses project age, market cap rank, developer traction, and price volatility signals
-- **Phase 2** enriches this with advanced tokenomics analysis, DEX liquidity checks, and holder distribution heuristics
-
-Alongside asset-level scoring, the **custody analyzer** audits every storage location against a curated security database containing proof-of-reserves status, regulatory history, hack records, and insurance coverage.
-
-## ✨ Features
-
-### 🔬 Deep Fundamental Analysis
-- **Project Age & Maturity:** Evaluates how established a project is
-- **Developer Activity:** Tracks GitHub commits, stars, and community traction
-- **Market Position:** Analyzes market cap rank and liquidity
-- **Volatility Signals:** Monitors 24h, 7d, and 30d price action
-
-### 🛡️ Custody Security Audits
-- **Hardware Wallets:** Ledger, Trezor security assessments
-- **Software Wallets:** MetaMask, Phantom, Trust Wallet analysis
-- **Centralized Exchanges:** Binance, Coinbase, Bybit risk scoring
-- **Historical Hacks:** Cross-references DeFiLlama Hacks database
-- **Regulatory Status:** Tracks DOJ settlements, licensing, restrictions
-
-### 📊 Severity-Based Penalty System
-The **Total Portfolio Score** is calculated by deducting points for macro-level risks:
-
-| Severity | Color | Penalty |
-|----------|-------|---------|
-| Critical | 🔴 | 3 points |
-| Warning | 🟡 | 2 points |
-| Info | 🔵 | 1 point |
-
-**Penalized risks include:**
-- Zero Bitcoin exposure (-3)
-- Extreme altcoin dominance (-2)
-- Low stablecoin reserves (-2)
-- Custody concentration (-3)
-- Severe drawdowns (-1)
-
-### ⚠️ Smart Risk Alerts
-- **Concentration Risks:** Single asset or location overexposure
-- **Abandoned Projects:** Zero GitHub commits detection
-- **Deep Losses:** Positions down >80% from cost basis
-- **Custody Risks:** High-risk exchanges or hot wallet overexposure
-
-### 💸 Live Price Matching
-- Queries **Binance, Bybit, OKX** simultaneously
-- Builds unified price map across 900+ USDT pairs
-- Adaptive formatting for micro-cap tokens (8 decimal places)
-
-## 🛠️ Tech Stack
-
-| Category | Technology |
-|----------|------------|
-| **Frontend** | HTML5, CSS3 (Dark/Light Mode) |
-| **Logic** | Vanilla JavaScript (ES6+) |
-| **APIs** | CoinGecko, DeFiLlama Hacks, GeckoTerminal |
-| **Price Feeds** | Binance, Bybit, OKX Public APIs |
-
-**No frameworks. No backend. No data collection. No API keys required.**
-
-## 🚀 Getting Started
-
-### Quick Start
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/yourusername/analyzer.git
-   cd analyzer
-   ```
-
-2. **Open in browser:**
-   - Simply open `analyzer.html` in any modern web browser
-   - Or use a local server:
-   ```bash
-   # Python 3
-   python -m http.server 8000
-   
-   # Node.js
-   npx serve .
-   ```
-
-3. **Navigate to:** `http://localhost:8000/analyzer.html`
-
-### Usage
-
-1. Select a **Test Scenario** from the dropdown or manually enter your holdings
-2. Specify: Asset, Quantity, Average Buy Price, Storage Location
-3. Click **"Analyze Portfolio"**
-4. Review your:
-   - **Total Portfolio Score** (0-100)
-   - **Risk Warnings** with severity levels
-   - **Individual Coin Analysis** with fundamental scores
-   - **Custody Security Breakdown**
-   - **Markdown Export** for record-keeping
-
-## ⚙️ Configuration
-
-### Adding New Coins
-
-Edit `js/coin_analyzer.js` and update the `CG_IDS` mapping:
-
-```javascript
-const CG_IDS = {
-    'BTC': 'bitcoin',
-    'ETH': 'ethereum',
-    'YOUR_TOKEN': 'coingecko-id-here'
-};
+```text
+Accounts Center → Your information and permissions → Download your information
+Format: JSON
+Date range: All time
+Request full export (10+ minutes if your account is old)
 ```
 
-### Adding New Custody Providers
+After it arrives via email, you have `instagram-yourusername-xxxx-xx-xx.zip` (about 1-2 GB).
 
-Edit `js/custody_analyzer.js` and add to `CUSTODY_DB`:
+## How to analyze
 
-```javascript
-const CUSTODY_DB = {
-    'YourExchange': {
-        type: 'Centralized Exchange',
-        score: 65,
-        pros: ['Feature 1', 'Feature 2'],
-        cons: ['Risk 1'],
-        hacks: [],
-        regulation: ['Licensed in X']
-    }
-};
+Extract the ZIP, open the tool, drag the ZIP onto the upload area. Wait a moment.
+
+```text
+Estimated Total: 2,487 hours ≈ 103 days
+Counted Sessions: 1,9824
+Active Days: 1,473 / 2,403 days = 61.3%
+Top Month: May 2020 (135 hours)
 ```
 
-### Adjusting Penalty Weights
+## Status
 
-Edit `js/alerts.js` to modify severity levels and penalty points for different risk categories.
+Alpha. Works with large exports from 2015-present. Known limits:
 
-## 📄 License
+- HTML export from Instagram is not JSON, tool requires JSON format
+- Session estimates are empirical; actual screen-open time could be 10-25% higher
+- First and last logins anchor the date range; entries outside those years are ignored
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## License
 
-## ⚠️ Disclaimer
-
-This tool is for **educational and informational purposes only**. It does not constitute financial advice. Always do your own research (DYOR) before making investment decisions.
-
----
-
-<div align="center">
-
-*All analysis runs locally in your browser, your data never leaves your device.*
-
-</div>
+MIT. Software provided as-is with no relation to Meta. Instagram is a trademark of Meta Platforms, Inc.
