@@ -56,7 +56,10 @@ build/
 coverage/
 .nyc_output/
 
-# Misc
+# Backups and development artifacts
 *.bak
 *.backup
 *.old
+_backup*/
+*_backup*/
+scriptler txt/
