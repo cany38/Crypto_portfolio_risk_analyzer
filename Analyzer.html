@@ -1,0 +1,1514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Portfolio Risk Analyzer</title>
+    <script>
+        try {
+            document.documentElement.setAttribute('data-theme', localStorage.getItem('portfolio_theme') === 'light' ? 'light' : 'dark');
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    </script>
+    <!-- Google Fonts for Roboto typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <main class="container">
+        <div class="app-topbar">
+            <button type="button" class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Switch to Light Mode" aria-label="Switch to light mode">LIGHT</button>
+        </div>
+
+        <!-- Data Entry Card -->
+        <section class="card entry-card" aria-labelledby="portfolio-entry-title">
+            <div class="entry-card-header">
+                <div>
+                    <span class="section-kicker">INPUT</span>
+                    <h2 id="portfolio-entry-title">Build your portfolio</h2>
+                    <p class="section-description">Sample positions are ready below. Replace them with your own holdings or load a preset.</p>
+                </div>
+                <div class="scenario-controls">
+                    <select id="testScenarioSelect" class="scenario-select" aria-label="Choose a demo portfolio">
+                        <option value="">Choose a demo portfolio</option>
+                        <optgroup label="Portfolio examples">
+                            <option value="1">Conservative veteran</option>
+                            <option value="2">DeFi power user</option>
+                            <option value="3">Memecoin degen</option>
+                            <option value="4">Stablecoin farmer</option>
+                            <option value="5">High-risk stress test</option>
+                        </optgroup>
+                    </select>
+                    <button type="button" onclick="loadSelectedTestScenario()" class="load-btn">
+                        Load preset
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-scroll">
+                <table id="holdingsTable" class="no-border-table">
+                    <caption class="sr-only">Portfolio holdings input</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Asset</th>
+                            <th scope="col">Quantity</th>
+                            <th scope="col">Average buy price</th>
+                            <th scope="col">Storage location</th>
+                            <th style="width: 50px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+
+            <!-- The + Button -->
+            <div class="add-row-wrap">
+                <button type="button" class="add-btn" onclick="addRow()" title="Add holding" aria-label="Add another holding">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+                <span>Add another asset</span>
+            </div>
+
+            <!-- Process Buttons -->
+            <div id="processButtons" class="process-buttons-container">
+                <button type="button" id="processBtn" class="process-btn" disabled onclick="processData()">Analyze portfolio</button>
+                <div class="action-buttons-group">
+                    <button type="button" id="pauseBtn" class="pause-btn" style="display: none;" onclick="togglePause()" title="Pause / Resume" aria-label="Pause analysis">⏸</button>
+                    <button type="button" id="killBtn" class="kill-btn" style="display: none;" onclick="killProcess()" title="Stop analysis" aria-label="Stop analysis">⏹</button>
+                </div>
+            </div>
+
+            <!-- 🖥️ Live Terminal Log Console -->
+            <details id="logDetails" class="log-details">
+                <summary>Analysis activity <span>Live technical details</span></summary>
+                <div id="logConsole" class="log-console" style="display: none;" role="log" aria-live="polite" aria-label="Analysis activity log"></div>
+            </details>
+        </section>
+
+        <div id="coinAnalyzerContainer"></div>
+
+        <div id="dashboardContainer" aria-live="polite"></div>
+
+        <footer class="app-footer">
+            <span>Risk snapshot, not financial advice.</span>
+            <span>Scores depend on public data availability and should be independently verified.</span>
+        </footer>
+    </main>
+
+    <script src="js/custody_analyzer.js"></script>
+    <script src="js/coin_analyzer.js"></script>
+    <script src="js/alerts.js"></script>
+    <script>
+        // Global store for latest analyzed holdings (used by Coin Analyzer)
+        window._portfolioHoldings = [];
+        // List of stablecoins: now dynamically resolved from CoinGecko at runtime
+        const STABLECOINS_FALLBACK_SET = new Set([
+            "USDT", "USDC", "DAI", "USDP", "GUSD", "FDUSD", "TUSD", "FRAX", "LUSD", "SUSD", "USDD", "PYUSD", "CRVUSD", "EURT", "EURS", "BUSD",
+        ]);
+
+        // A last-resort $1 estimate is valid only for assets designed to track USD
+        const USD_PEGGED_STABLECOINS = new Set([
+            "USDT", "USDC", "DAI", "USDP", "GUSD", "FDUSD", "TUSD", "FRAX", "LUSD", "SUSD", "USDD", "PYUSD", "CRVUSD", "BUSD",
+        ]);
+
+        // Helper: a coin is a stablecoin ONLY if it is in the fallback Set
+        function isAssetStablecoin(symbol) {
+            return STABLECOINS_FALLBACK_SET.has(symbol);
+        }
+
+        function getStablecoinFallbackPrice(symbol) {
+            return USD_PEGGED_STABLECOINS.has(symbol) ? 1 : null;
+        }
+
+        // Utility to prevent XSS when rendering user inputs
+        function escapeHTML(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        // Reusable delete button SVG (avoids 5x duplicate)
+        function getDeleteButtonHTML() {
+            return `<button type="button" class="delete-btn" onclick="removeRow(this)" title="Remove holding" aria-label="Remove holding"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg></button>`;
+        }
+
+        // Programmatic row insertion helper for initial load
+        function addTableRowData(coin, quantity, avgBuyPrice, location) {
+            const tbody = document.getElementById('tableBody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td data-label="Asset"><input type="text" class="table-input" placeholder="e.g. BTC" name="coin" aria-label="Asset symbol" autocomplete="off" value="${escapeHTML(coin)}"></td>
+                <td data-label="Quantity"><input type="number" class="table-input" placeholder="0.00" name="quantity" aria-label="Quantity" inputmode="decimal" step="any" min="0" value="${escapeHTML(quantity)}"></td>
+                <td data-label="Average buy price"><input type="number" class="table-input" placeholder="0.00" name="average_buy_price" aria-label="Average buy price in US dollars" inputmode="decimal" step="any" min="0" value="${escapeHTML(avgBuyPrice)}"></td>
+                <td data-label="Storage location"><input type="text" class="table-input" placeholder="e.g. Binance" name="location" aria-label="Storage location" autocomplete="off" value="${escapeHTML(location)}"></td>
+                <td data-label="Actions">${getDeleteButtonHTML()}</td>
+            `;
+            tbody.appendChild(tr);
+        }
+
+        // --- Test Scenario Loader ---
+        const TEST_SCENARIOS = {
+            // 1. Conservative Veteran: BTC/ETH heavy, cold storage, low risk
+            1: [
+                ['BTC',   '1.8',       '38000',   'Ledger'],
+                ['ETH',   '12',        '2200',    'Ledger'],
+                ['BTC',   '0.5',       '52000',   'Trezor'],
+                ['USDC',  '30000',     '1',       'Coinbase'],
+                ['ETH',   '3',         '1800',    'Trezor'],
+            ],
+            // 2. DeFi Power User: L1s, LSTs, stables spread across self-custody
+            2: [
+                ['ETH',   '8',         '2400',    'MetaMask'],
+                ['SOL',   '500',       '70',      'Phantom Wallet'],
+                ['LINK',  '3000',      '12',      'MetaMask'],
+                ['AAVE',  '400',       '85',      'Ledger'],
+                ['UNI',   '5000',      '6',       'MetaMask'],
+                ['USDT',  '20000',     '1',       'Binance'],
+                ['PEPE',  '500000000', '0.000006','MetaMask'],
+                ['POL',   '40000',     '0.95',    'MetaMask'],
+            ],
+            // 3. Memecoin Degen: memecoins everywhere, hot wallets
+            3: [
+                ['PEPE',  '2000000000','0.000009','Bybit'],
+                ['SHIB',  '5000000000','0.000015','Binance'],
+                ['DOGE',  '200000',    '0.18',    'Bybit'],
+                ['BONK',  '800000000', '0.000030','Phantom'],
+                ['WIF',   '15000',     '3.20',    'Phantom'],
+                ['FLOKI', '10000000',  '0.00025', 'Gate.io'],
+                ['MOG',   '20000000000','0.0000015','MEXC'],
+                ['TURBO', '5000000',   '0.005',   'MEXC Global'],
+                ['BRETT', '1000000',   '0.12',    'Gate'],
+                ['USDT',  '3000',      '1',       'Binance'],
+            ],
+            // 4. Stablecoin Farmer: mostly stables, low volatility
+            4: [
+                ['USDT',  '50000',     '1',       'Binance'],
+                ['USDC',  '30000',     '1',       'Coinbase'],
+                ['FDUSD', '15000',     '1',       'Binance'],
+                ['DAI',   '10000',     '1',       'MetaMask'],
+                ['FRAX',  '8000',      '1',       'Gate.io'],
+                ['BTC',   '0.1',       '60000',   'Ledger'],
+                ['ETH',   '0.5',       '3000',    'Ledger'],
+            ],
+            // 5. High Risk Stress Test: everything wrong at once
+            5: [
+                ['FTM',   '500000',    '3.0',     'MEXC'],
+                ['LUNA',  '1000000',   '100',     'FTX'],
+                ['FRAX',  '20000',     '1',       'Gate'],
+                ['USDD',  '15000',     '1',       'HTX'],
+                ['MOG',   '50000000000','0.0000020','BtcTurk'],
+                ['TURBO', '10000000',  '0.006',   'BTC TURK'],
+                ['FLOKI', '20000000',  '0.00030', 'KOİNİM'],
+                ['BONK',  '1000000000','0.000040','Phantom'],
+                ['PEOPLE','8000000',   '0.12',    'Gate.io'],
+                ['JASMY', '5000000',   '0.040',   'mexc global'],
+                ['PEPE',  '1000000000','0.000010','Bybit'],
+                ['ENA',   '50000',     '0.90',    'KuCoin'],
+                ['EIGEN', '10000',     '5',       'BİTEXEN'],
+                ['BTC',   '0.02',      '70000',   'Ledger'],
+                ['USDT',  '1000',      '1',       'Binance'],
+            ],
+        };
+
+        function loadSelectedTestScenario() {
+            const val = document.getElementById('testScenarioSelect').value;
+            if (!val) return;
+            const data = TEST_SCENARIOS[parseInt(val)];
+            if (!data) return;
+            document.getElementById('tableBody').innerHTML = '';
+            data.forEach(([coin, qty, price, loc]) => addTableRowData(coin, qty, price, loc));
+            updateDeleteButtons();
+            validateForm();
+        }
+
+
+
+        function updateDeleteButtons() {
+            const rows = document.querySelectorAll('#tableBody tr');
+            const btns = document.querySelectorAll('.delete-btn');
+            if (rows.length <= 1) {
+                if (btns[0]) btns[0].style.display = 'none';
+            } else {
+                btns.forEach(btn => btn.style.display = 'inline-block');
+            }
+        }
+
+        function addRow() {
+            const tbody = document.getElementById('tableBody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td data-label="Asset"><input type="text" class="table-input" placeholder="e.g. BTC" name="coin" aria-label="Asset symbol" autocomplete="off"></td>
+                <td data-label="Quantity"><input type="number" class="table-input" placeholder="0.00" name="quantity" aria-label="Quantity" inputmode="decimal" step="any" min="0"></td>
+                <td data-label="Average buy price"><input type="number" class="table-input" placeholder="0.00" name="average_buy_price" aria-label="Average buy price in US dollars" inputmode="decimal" step="any" min="0"></td>
+                <td data-label="Storage location"><input type="text" class="table-input" placeholder="e.g. Binance" name="location" aria-label="Storage location" autocomplete="off"></td>
+                <td data-label="Actions">${getDeleteButtonHTML()}</td>
+            `;
+            tbody.appendChild(tr);
+            updateDeleteButtons();
+            validateForm();
+        }
+
+        function removeRow(btn) {
+            btn.closest('tr').remove();
+            updateDeleteButtons();
+            validateForm();
+        }
+
+        function validateForm() {
+            const rows = document.querySelectorAll('#tableBody tr');
+            const processBtn = document.getElementById('processBtn');
+            if (!processBtn) return;
+            let allFilled = rows.length > 0;
+
+            rows.forEach(row => {
+                const inputs = row.querySelectorAll('input, select');
+                inputs.forEach(input => {
+                    if (!input.value.trim()) {
+                        allFilled = false;
+                    }
+                    if (input.name === 'quantity' || input.name === 'average_buy_price') {
+                        const numericValue = Number(input.value);
+                        if (!Number.isFinite(numericValue) || numericValue <= 0) allFilled = false;
+                    }
+                });
+            });
+
+            if (typeof _isProcessing === 'undefined' || !_isProcessing) {
+                processBtn.disabled = !allFilled;
+            }
+        }
+
+        // Adaptive currency formatter for low-priced coins (like PEPE, SHIB)
+        function formatPrice(value) {
+            if (value === 0) return "$0.00";
+            if (value >= 1000) {
+                return "$" + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            } else if (value >= 1) {
+                return "$" + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+            } else if (value >= 0.01) {
+                return "$" + value.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+            } else {
+                // For sub-cent coins, print up to 8 decimal places
+                return "$" + value.toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 8 });
+            }
+        }
+
+        // Dynamically renders a pricing table cell, shrinking font-size if text is very long
+        function renderPriceCell(value) {
+            const formatted = formatPrice(value);
+            // If the formatted price is 10 or more characters (like "$0.00000850"), shrink the font size
+            const style = formatted.length >= 10 ? 'style="font-size: 0.8rem; font-weight: 500; white-space: nowrap;"' : '';
+            return `<td ${style}>${formatted}</td>`;
+        }
+
+        // Print a line to our terminal console
+        function printLog(text, type = "info") {
+            const consoleBox = document.getElementById('logConsole');
+            consoleBox.style.display = 'flex'; // Ensure visible
+
+            const timestamp = new Date().toLocaleTimeString();
+            const logItem = document.createElement('div');
+            logItem.className = `log-item ${type}`;
+            
+            const timeSpan = document.createElement('span');
+            timeSpan.textContent = `[${timestamp}]`;
+            
+            const textSpan = document.createElement('span');
+            textSpan.textContent = text;
+            
+            logItem.appendChild(timeSpan);
+            logItem.appendChild(document.createTextNode(' '));
+            logItem.appendChild(textSpan);
+
+            consoleBox.appendChild(logItem);
+            consoleBox.scrollTop = consoleBox.scrollHeight; // Auto-scroll
+        }
+
+        // Fetch live crypto prices from multiple exchanges (Binance, Bybit, OKX)
+        // Uses CORS proxy fallback chain if direct access is blocked
+        async function fetchPrices() {
+
+            // Generic fetch with a shared proxy fallback chain and timeout.
+            async function fetchWithProxies(url, label) {
+                const proxyCandidates = typeof getProxyCandidates === 'function'
+                    ? getProxyCandidates(url)
+                    : [
+                        { name: 'direct', url },
+                        { name: 'allorigins/raw', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
+                        { name: 'corsproxy.io', url: `https://corsproxy.io/?url=${encodeURIComponent(url)}` },
+                    ];
+                for (let i = 0; i < proxyCandidates.length; i++) {
+                    const candidate = proxyCandidates[i];
+                    let controller = null;
+                    let timeoutId = null;
+                    try {
+                        controller = createTrackedAbortController();
+                        timeoutId = setTimeout(() => controller.abort(), 15000);  // Increased from 8s to 15s
+                        const resp = await fetch(candidate.url, { signal: controller.signal });
+                        // NOTE: no clearTimeout here on purpose
+                        if (resp.ok) {
+                            let json = await resp.json();
+
+                            if (json && json.contents !== undefined && json.status !== undefined) {
+                                try {
+                                    json = typeof json.contents === 'string' ? JSON.parse(json.contents) : json.contents;
+                                } catch (e) {
+                                    // Invalid JSON in contents, try next proxy
+                                    continue;
+                                }
+                            }
+                            printLog(`✅ ${label} connected (${candidate.name}), parsing prices...`, 'success');
+                            return json;
+                        }
+                    } catch (e) {
+                        // Try next proxy with small delay
+                        if (i < proxyCandidates.length - 1) {
+                            await sleep(100);
+                        }
+                    } finally {
+                        if (timeoutId) clearTimeout(timeoutId);
+                        if (controller) releaseTrackedAbortController(controller);
+                    }
+                }
+                printLog(`❌ ${label} failed (all ${proxyCandidates.length} proxies exhausted)`, 'error');
+                return null;
+            }
+
+            printLog('🌐 Querying 3 exchanges in parallel (Binance, Bybit, OKX)...', 'info');
+            printLog('⏳ This may take ~40 seconds in worst case. Please wait...', 'info');
+            await sleep(200);
+
+            // Fire all 3 exchange requests in parallel
+            const [binanceData, bybitData, okxData] = await Promise.all([
+                fetchWithProxies('https://api.binance.com/api/v3/ticker/price', 'Binance'),
+                fetchWithProxies('https://api.bybit.com/v5/market/tickers?category=spot', 'Bybit'),
+                fetchWithProxies('https://www.okx.com/api/v5/market/tickers?instType=SPOT', 'OKX'),
+            ]);
+
+            // Unified price map: { "BTCUSDT": 64500.50, ... }
+            const priceMap = {};
+            const sources = {};
+
+            // Parse Binance: [{symbol: "BTCUSDT", price: "64500.50"}, ...]
+            if (binanceData && Array.isArray(binanceData)) {
+                binanceData.forEach(item => {
+                    const sym = item.symbol;
+                    if (sym && sym.endsWith('USDT')) {
+                        priceMap[sym] = parseFloat(item.price);
+                        sources[sym] = 'Binance';
+                    }
+                });
+                printLog(`📥 Binance: ${Object.keys(priceMap).length} USDT pairs loaded`, 'success');
+            }
+
+            // Parse Bybit: {retCode: 0, result: {list: [{symbol: "BTCUSDT", lastPrice: "64500.50"}, ...]}}
+            if (bybitData && bybitData.retCode === 0 && bybitData.result?.list) {
+                let bybitCount = 0;
+                bybitData.result.list.forEach(item => {
+                    const sym = item.symbol;
+                    if (sym && sym.endsWith('USDT')) {
+                        if (!(sym in priceMap)) {
+                            priceMap[sym] = parseFloat(item.lastPrice);
+                            sources[sym] = 'Bybit';
+                            bybitCount++;
+                        }
+                    }
+                });
+                if (bybitCount > 0) printLog(`📥 Bybit: ${bybitCount} new USDT pairs added`, 'success');
+            }
+
+            // Parse OKX: {code: "0", data: [{instId: "BTC-USDT", last: "64500.50"}, ...]}
+            if (okxData && okxData.code === '0' && Array.isArray(okxData.data)) {
+                let okxCount = 0;
+                okxData.data.forEach(item => {
+                    const instId = item.instId;
+                    if (instId && instId.endsWith('-USDT')) {
+                        const normalizedSym = instId.replace('-', ''); // BTC-USDT → BTCUSDT
+                        if (!(normalizedSym in priceMap)) {
+                            priceMap[normalizedSym] = parseFloat(item.last);
+                            sources[normalizedSym] = 'OKX';
+                            okxCount++;
+                        }
+                    }
+                });
+                if (okxCount > 0) printLog(`📥 OKX: ${okxCount} new USDT pairs added`, 'success');
+            }
+
+            const totalPairs = Object.keys(priceMap).length;
+            if (totalPairs > 0) {
+                printLog(`🎯 Combined price map: ${totalPairs.toLocaleString()} USDT pairs ready`, 'success');
+                // Store sources for debugging
+                window._priceSources = sources;
+                window._priceUpdatedAt = Date.now();
+                return priceMap;
+            } else {
+                printLog('⚠️ All exchanges failed. Will fall back to CoinGecko per-coin.', 'warning');
+                return null;
+            }
+        }
+
+        // Helper: recompute all aggregate metrics from holdings array (immutable: does not mutate holdings)
+        function computeAggregates(holdings, totalCurrentValue) {
+            let maxHoldingPct = 0;
+            let maxHoldingCoin = "";
+            let stablecoinExposure = 0;
+            let btcValue = 0;
+            const riskLocationsMap = {};
+            const riskBasisTotal = holdings.reduce(
+                (sum, h) => sum + (h.isUnpriced ? h.costBasis : h.currentValue), 0
+            );
+
+            const coinTotals = {};
+
+            holdings.forEach(h => {
+                const riskValue = h.isUnpriced ? h.costBasis : h.currentValue;
+                const weight = riskBasisTotal > 0 ? (riskValue / riskBasisTotal) * 100 : 0;
+                coinTotals[h.coin] = (coinTotals[h.coin] || 0) + riskValue;
+
+                if (isAssetStablecoin(h.coin)) {
+                    stablecoinExposure += weight;
+                }
+                if (h.coin === "BTC") btcValue += riskValue;
+
+                const rawLoc = h.location || "Unknown";
+                const normalizedLoc = (typeof normalizeCustodyName === 'function')
+                    ? (normalizeCustodyName(rawLoc) || rawLoc.trim())
+                    : rawLoc.trim();
+                riskLocationsMap[normalizedLoc] = (riskLocationsMap[normalizedLoc] || 0) + riskValue;
+            });
+
+            Object.entries(coinTotals).forEach(([coin, value]) => {
+                if (isAssetStablecoin(coin)) return;
+                const pct = riskBasisTotal > 0 ? (value / riskBasisTotal) * 100 : 0;
+                if (pct > maxHoldingPct) {
+                    maxHoldingPct = pct;
+                    maxHoldingCoin = coin;
+                }
+            });
+
+            const btcWeight = riskBasisTotal > 0 ? (btcValue / riskBasisTotal) * 100 : 0;
+            const pricedCostBasis = holdings
+                .filter(h => !h.isUnpriced)
+                .reduce((sum, h) => sum + h.costBasis, 0);
+            const totalProfitLoss = totalCurrentValue - pricedCostBasis;
+            const totalProfitLossPct = pricedCostBasis > 0 ? (totalProfitLoss / pricedCostBasis) * 100 : 0;
+
+            return { maxHoldingPct, maxHoldingCoin, stablecoinExposure, btcWeight, riskLocationsMap, riskBasisTotal, pricedCostBasis, totalProfitLoss, totalProfitLossPct };
+        }
+
+        // Helper: compute portfolio weight for a single holding (immutable)
+        function computeWeight(currentValue, totalCurrentValue) {
+            return totalCurrentValue > 0 ? (currentValue / totalCurrentValue) * 100 : 0;
+        }
+
+        // Guard flag to prevent duplicate processData calls
+        let _isProcessing = false;
+        // Pause/resume support
+        let _pausePromise = null;
+        let _pauseResolve = null;
+        // Kill flag
+        let _killed = false;
+        // Network requests currently owned by the active analysis.
+        const _activeRequestControllers = new Set();
+
+        function createTrackedAbortController() {
+            const controller = new AbortController();
+            _activeRequestControllers.add(controller);
+            return controller;
+        }
+
+        function releaseTrackedAbortController(controller) {
+            _activeRequestControllers.delete(controller);
+        }
+
+        window.createTrackedAbortController = createTrackedAbortController;
+        window.releaseTrackedAbortController = releaseTrackedAbortController;
+
+        // Toggle pause / resume
+        function togglePause() {
+            const btn = document.getElementById('pauseBtn');
+            if (!_isProcessing) return;
+            if (!_pausePromise) {
+                // pause
+                _pausePromise = new Promise(r => { _pauseResolve = r; });
+                if (btn) { btn.innerText = '▶'; btn.title = 'Resume'; btn.setAttribute('aria-label', 'Resume analysis'); }
+                printLog('⏸ Paused. Click ▶ to resume.', 'warning');
+            } else {
+                // resume
+                if (_pauseResolve) _pauseResolve();
+                _pausePromise = null; _pauseResolve = null;
+                if (btn) { btn.innerText = '⏸'; btn.title = 'Pause'; btn.setAttribute('aria-label', 'Pause analysis'); }
+                printLog('▶ Resumed.', 'info');
+            }
+        }
+
+        // Kill whole process
+        function killProcess() {
+            _killed = true;
+            _activeRequestControllers.forEach(controller => controller.abort());
+            _activeRequestControllers.clear();
+            if (_pauseResolve) { _pauseResolve(); _pauseResolve = null; _pausePromise = null; }
+            printLog('⏹ Killed.', 'error');
+            const kb = document.getElementById('killBtn');
+            if (kb) { kb.disabled = true; kb.innerText = '⏳'; }
+        }
+
+        // Central checkpoint: throws if killed, blocks while paused
+        async function checkpoint() {
+            if (_killed) throw new DOMException('Killed', 'AbortError');
+            if (_pausePromise) await _pausePromise;
+            if (_killed) throw new DOMException('Killed', 'AbortError');
+        }
+
+        // Sleep that respects pause/kill
+        window.checkpoint = checkpoint;
+        window.sleep = async function (ms) {
+            const start = Date.now();
+            while (Date.now() - start < ms) {
+                await checkpoint();
+                const rem = ms - (Date.now() - start);
+                if (rem <= 0) break;
+                await new Promise(r => setTimeout(r, Math.min(25, rem)));
+            }
+            await checkpoint();
+        };
+
+        // Process data, compute risk metrics and render dashboard
+        async function processData() {
+            if (_isProcessing) {
+                console.warn('processData already running, ignoring duplicate call');
+                return;
+            }
+            _isProcessing = true;
+            _killed = false;
+            _pausePromise = null;
+            _pauseResolve = null;
+
+            const processBtn = document.getElementById('processBtn');
+            const pauseBtn = document.getElementById('pauseBtn');
+            const killBtn = document.getElementById('killBtn');
+            const logConsole = document.getElementById('logConsole');
+            const logDetails = document.getElementById('logDetails');
+            const entryControls = [...document.querySelectorAll('.entry-card input, .entry-card select, .load-btn, .add-btn, .delete-btn')]
+                .map(element => ({ element, wasDisabled: element.disabled }));
+
+            try {
+            // Freeze plain input values before any asynchronous work
+            const inputSnapshot = [...document.querySelectorAll('#tableBody tr')].map(row => ({
+                coin: row.querySelector('[name="coin"]')?.value?.trim().toUpperCase() || '',
+                quantity: Number(row.querySelector('[name="quantity"]')?.value),
+                avgBuyPrice: Number(row.querySelector('[name="average_buy_price"]')?.value),
+                location: row.querySelector('[name="location"]')?.value?.trim() || '',
+            }));
+            entryControls.forEach(({ element }) => { element.disabled = true; });
+            // Clear previous dashboard and logs
+            document.getElementById('dashboardContainer').innerHTML = '';
+            document.getElementById('coinAnalyzerContainer').innerHTML = '';
+            if (logConsole) {
+                logConsole.innerHTML = '';
+                logConsole.style.display = 'flex';
+            }
+            if (logDetails) {
+                logDetails.dataset.started = 'true';
+                logDetails.open = true;
+            }
+
+            // Set loading state: disable process button, show Pause + Kill buttons
+            if (processBtn) {
+                processBtn.disabled = true;
+                processBtn.setAttribute('aria-busy', 'true');
+            }
+            if (pauseBtn) {
+                pauseBtn.style.display = 'inline-flex';
+                pauseBtn.disabled = false;
+                pauseBtn.innerText = '⏸';
+                pauseBtn.title = 'Pause';
+            }
+            if (killBtn) {
+                killBtn.style.display = 'inline-flex';
+                killBtn.disabled = false;
+                killBtn.innerText = '⏹';
+                killBtn.title = 'Kill Process';
+            }
+
+            if (!processBtn || !logConsole) {
+                await checkpoint();
+                throw new Error('Required DOM elements (processBtn / logConsole) not found.');
+            }
+
+            printLog('⚡ Initializing portfolio matcher...', 'info');
+            await checkpoint();
+            await sleep(300);
+
+            // Initialize symbol candidates from ranked market pages and categories
+            printLog('🔄 Fetching ranked CoinGecko metadata (IDs and categories)...', 'info');
+            await checkpoint();
+            await initCoinMetadata();
+
+            // Stablecoins: hardcoded authoritative set (avoids CoinGecko misclassification)
+            const STABLECOINS = [...STABLECOINS_FALLBACK_SET];
+            window.STABLECOINS_ARRAY = STABLECOINS;
+
+            // Fetch prices
+            await checkpoint();
+            let priceMap = await fetchPrices();
+
+            if (!priceMap) {
+                printLog('⚠️ API fetch failed. Operating in local fallback/unpriced mode.', 'warning');
+                priceMap = {};
+            }
+
+
+            await sleep(400);
+            await checkpoint();
+            printLog('🔄 Standardizing assets and running matching sequence:', 'info');
+
+            const holdings = [];
+
+            let totalCostBasis = 0;
+            let totalCurrentValue = 0;
+
+            // Process rows and gather holdings info
+            for (const { coin, quantity, avgBuyPrice, location } of inputSnapshot) {
+                if (!coin || !location || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(avgBuyPrice) || avgBuyPrice <= 0) {
+                    printLog('⚠️ Skipping invalid holding. Check symbol, quantity, buy price, and storage location.', 'warning');
+                    continue;
+                }
+
+                let currentPrice = 0;
+                let priceSource = null;
+                let priceUpdatedAt = null;
+                let logType = "success";
+                let logMessage = "";
+
+                // Artificial delay to let the user see the typewriter matching process
+                await checkpoint();
+                await sleep(300);
+
+                let isUnpriced = false;
+                let isEstimatedPrice = false;
+
+                // Use the live market price for every asset, including stablecoins.
+                // The $1 peg is only an explicitly marked last-resort estimate.
+                const pair = coin + "USDT";
+                if (Number.isFinite(priceMap[pair]) && priceMap[pair] > 0) {
+                    currentPrice = priceMap[pair];
+                    const source = window._priceSources?.[pair] || 'exchange';
+                    priceSource = source;
+                    priceUpdatedAt = window._priceUpdatedAt || Date.now();
+                    logMessage = `${isAssetStablecoin(coin) ? '🪙' : '✅'} ${coin} priced via ${source}: ${formatPrice(currentPrice)}`;
+                } else {
+                    const cgId = typeof getCGId === 'function' ? getCGId(coin) : null;
+                    let cgFetchedPrice = null;
+                    let cgLastUpdatedAt = null;
+
+                    if (cgId) {
+                        const cgSimpleUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(cgId)}&vs_currencies=usd&include_last_updated_at=true`;
+                        const cgProxyCandidates = typeof getProxyCandidates === 'function'
+                            ? getProxyCandidates(cgSimpleUrl)
+                            : [
+                                { name: 'direct', url: cgSimpleUrl },
+                                { name: 'allorigins/raw', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(cgSimpleUrl)}` },
+                                { name: 'corsproxy.io', url: `https://corsproxy.io/?url=${encodeURIComponent(cgSimpleUrl)}` },
+                            ];
+
+                        for (let retry = 0; retry < 3 && cgFetchedPrice === null; retry++) {
+                            for (const candidate of cgProxyCandidates) {
+                                await checkpoint();
+                                if (cgFetchedPrice !== null) break;
+                                let controller = null;
+                                let timeoutId = null;
+                                try {
+                                    controller = createTrackedAbortController();
+                                    timeoutId = setTimeout(() => controller.abort(), 10000);
+                                    const cgResp = await fetch(candidate.url, { signal: controller.signal });
+                                    if (cgResp.ok) {
+                                        const cgJson = await cgResp.json();
+                                        const price = Number(cgJson?.[cgId]?.usd);
+                                        if (Number.isFinite(price) && price > 0) {
+                                            cgFetchedPrice = price;
+                                            const updatedSeconds = Number(cgJson?.[cgId]?.last_updated_at);
+                                            cgLastUpdatedAt = Number.isFinite(updatedSeconds) ? updatedSeconds * 1000 : Date.now();
+                                        }
+                                    }
+                                } catch (e) {
+                                    // A timeout may try the next proxy, but an
+                                    // explicit user stop must leave the chain.
+                                    await checkpoint();
+                                } finally {
+                                    if (timeoutId) clearTimeout(timeoutId);
+                                    if (controller) releaseTrackedAbortController(controller);
+                                }
+                            }
+                            if (cgFetchedPrice === null && retry < 2) {
+                                await checkpoint();
+                                await sleep(1000);
+                            }
+                        }
+                    }
+
+                    const stablecoinFallbackPrice = getStablecoinFallbackPrice(coin);
+                    if (cgFetchedPrice !== null) {
+                        currentPrice = cgFetchedPrice;
+                        priceSource = 'CoinGecko';
+                        priceUpdatedAt = cgLastUpdatedAt;
+                        logType = "info";
+                        logMessage = `🦎 ${coin} priced via CoinGecko: ${formatPrice(currentPrice)}`;
+                    } else if (stablecoinFallbackPrice !== null) {
+                        currentPrice = stablecoinFallbackPrice;
+                        priceSource = 'Peg estimate';
+                        priceUpdatedAt = Date.now();
+                        isEstimatedPrice = true;
+                        logType = "warning";
+                        logMessage = `⚠️ ${coin} live price unavailable; using a $1 peg estimate.`;
+                    } else {
+                        currentPrice = 0;
+                        isUnpriced = true;
+                        logType = "error";
+                        logMessage = isAssetStablecoin(coin)
+                            ? `❌ ${coin} live price unavailable; a $1 estimate is not valid for this peg. Marked as unpriced.`
+                            : `❌ ${coin} not found on any exchange or CoinGecko after 3 attempts. Marked as unpriced.`;
+                    }
+                }
+
+                printLog(logMessage, logType);
+
+                const costBasis = quantity * avgBuyPrice;
+                const currentValue = isUnpriced ? 0 : quantity * currentPrice;
+                const profitLoss = isUnpriced ? 0 : currentValue - costBasis;
+                const profitLossPct = isUnpriced ? 0 : (costBasis > 0 ? (profitLoss / costBasis) * 100 : 0);
+
+                holdings.push({
+                    coin,
+                    quantity,
+                    avgBuyPrice,
+                    location,
+                    currentPrice,
+                    costBasis,
+                    currentValue,
+                    profitLoss,
+                    profitLossPct,
+                    isUnpriced,
+                    isEstimatedPrice,
+                    priceSource,
+                    priceUpdatedAt
+                });
+
+                totalCostBasis += costBasis;
+                totalCurrentValue += currentValue;
+            }
+
+            await sleep(400);
+            await checkpoint();
+            printLog('📊 Calculating weights and testing portfolio risk vectors...', 'info');
+
+            // Sort holdings by value descending
+            holdings.sort((a, b) => b.currentValue - a.currentValue);
+
+            // Store globally for Coin Analyzer
+            window._portfolioHoldings = holdings;
+
+            // Run Coin and Custody Security Analysis (this also populates window._cgPriceMap from CoinGecko bulk fetch)
+            printLog('🔬 Running Coin and Custody fundamental analysis (CoinGecko)...', 'info');
+            const { coinResults, coinWeightedAvg, custodyWeightedAvg, phase2Results } = await runCoinAnalysis(holdings, STABLECOINS);
+            // Store Phase 2 results globally for Markdown export
+            window._phase2Results = phase2Results || {};
+
+            // Recalculate totalCurrentValue and aggregates AFTER early patch in coin_analyzer.js
+            totalCurrentValue = holdings.reduce((sum, h) => sum + h.currentValue, 0);
+            holdings.sort((a, b) => b.currentValue - a.currentValue);
+            const agg = computeAggregates(holdings, totalCurrentValue);
+            let { maxHoldingPct, maxHoldingCoin, stablecoinExposure, btcWeight, riskLocationsMap, riskBasisTotal, pricedCostBasis, totalProfitLoss, totalProfitLossPct } = agg;
+
+            // Determine Risk Rating: will be set after totalPortfolioScore is calculated
+            let riskLevel = "Medium Risk";
+            let riskClass = "medium-risk";
+
+            // Generate alerts via external engine (now that custody scores and coin scores are also processed)
+            const alerts = generateAlerts({
+                holdings,
+                totalCurrentValue,
+                totalProfitLossPct,
+                maxHoldingCoin,
+                maxHoldingPct,
+                stablecoinExposure,
+                btcWeight,
+                locationsMap: riskLocationsMap,
+                riskBasisTotal,
+                STABLECOINS,
+                coinResults,
+                phase2Results
+            });
+
+            // Holistic Risk Re-evaluation with Warning Penalties
+            const penaltyMap = {};
+            alerts.forEach(a => {
+                if (!a.dedupKey) {
+                    console.warn(`Alert missing dedupKey: "${a.text?.substring(0, 50)}...", using unique key, penalty may not deduplicate correctly`);
+                }
+                const key = a.dedupKey || `unique-${Math.random().toString(36).slice(2)}`;
+                if (!penaltyMap[key] || (a.penalty || 0) > penaltyMap[key]) {
+                    penaltyMap[key] = a.penalty || 0;
+                }
+            });
+            const totalPenalty = Object.values(penaltyMap).reduce((sum, p) => sum + p, 0);
+            const basePortfolioScore = Math.round((coinWeightedAvg + custodyWeightedAvg) / 2);
+            const totalPortfolioScore = Math.max(0, basePortfolioScore - totalPenalty);
+            
+            // Determine Overall Portfolio Risk based on final score 85-100
+            const hasAnyPriced = holdings.some(h => !h.isUnpriced && h.currentPrice > 0);
+            if (!hasAnyPriced || totalCurrentValue === 0) {
+                riskLevel = "N/A";
+                riskClass = "neutral";
+            } else if (totalPortfolioScore >= 85) {
+                riskLevel = "Safe";
+                riskClass = "safe";
+            } else if (totalPortfolioScore >= 75) {
+                riskLevel = "Low Risk";
+                riskClass = "low-risk";
+            } else if (totalPortfolioScore >= 50) {
+                riskLevel = "Medium Risk";
+                riskClass = "medium-risk";
+            } else {
+                riskLevel = "High Risk";
+                riskClass = "high-risk";
+            }
+
+            let locationsHtml = "";
+            Object.entries(riskLocationsMap).forEach(([loc, val]) => {
+                const locWeight = riskBasisTotal > 0 ? (val / riskBasisTotal) * 100 : 0;
+                locationsHtml += `
+                    <div class="stat-box">
+                        <span class="stat-label">${escapeHTML(loc)}</span>
+                        <span class="stat-value">$${val.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                        <span class="stat-label" style="font-size: 0.8rem; margin-top: 0.25rem;">${locWeight.toFixed(1)}% of portfolio</span>
+                    </div>
+                `;
+            });
+
+            // Build Asset Rows HTML
+            let assetRowsHtml = "";
+            holdings.forEach(h => {
+                const plClass = (h.profitLoss > 0.01) ? "profit" : (h.profitLoss < -0.01) ? "loss" : "neutral";
+                const plSign = h.profitLoss >= 0 ? "+" : "-";
+                
+                let marketValueHtml = h.isUnpriced ? '<span style="color:var(--text-muted);font-style:italic;">Unpriced</span>' : `$${h.currentValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                let livePriceHtml = h.isUnpriced
+                    ? '<td style="color:var(--text-muted);font-style:italic;">Unpriced</td>'
+                    : h.isEstimatedPrice
+                        ? `<td title="Live price unavailable; using peg estimate" style="color:var(--text-muted);">≈${formatPrice(h.currentPrice)}</td>`
+                        : renderPriceCell(h.currentPrice);
+                let plHtml = h.isUnpriced ? '<span style="color:var(--text-muted);font-style:italic;">N/A</span>' : `${plSign}$${Math.abs(h.profitLoss).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} (${plSign}${Math.abs(h.profitLossPct).toFixed(1)}%)`;
+                let coinBadge = h.isUnpriced
+                    ? ' <span title="Unpriced asset" class="data-quality-badge">UNPRICED</span>'
+                    : h.isEstimatedPrice
+                        ? ' <span title="Estimated price" class="data-quality-badge estimated">EST.</span>'
+                        : '';
+
+                assetRowsHtml += `
+                    <tr>
+                        <td style="font-weight: 700;">${escapeHTML(h.coin)}${coinBadge}</td>
+                        <td>${h.quantity.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 6})}</td>
+                        <td>${marketValueHtml}</td>
+                        ${renderPriceCell(h.avgBuyPrice)}
+                        ${livePriceHtml}
+                        <td>${h.isUnpriced ? 'N/A' : `${computeWeight(h.currentValue, totalCurrentValue).toFixed(1)}%`}</td>
+                        <td class="${h.isUnpriced ? '' : plClass}" style="font-weight: 600;">
+                            ${plHtml}
+                        </td>
+                        <td style="color: var(--text-color); font-size: 0.9rem;">${escapeHTML(h.location)}</td>
+                    </tr>
+                `;
+            });
+
+            // Render Dashboard Card
+            const container = document.getElementById('dashboardContainer');
+            const totalPLClass = (totalProfitLoss > 0.01) ? "profit" : (totalProfitLoss < -0.01) ? "loss" : "neutral";
+            const totalPLSign = totalProfitLoss >= 0 ? "+" : "-";
+            const hasEstimatedPrices = holdings.some(h => h.isEstimatedPrice);
+            const hasUnpricedAssets = holdings.some(h => h.isUnpriced);
+            const pricingStatus = hasUnpricedAssets
+                ? 'Some assets are unpriced; cost basis is used only for risk weighting.'
+                : hasEstimatedPrices
+                    ? 'Live market data with clearly marked peg estimates.'
+                    : 'Live market data from public exchange and CoinGecko feeds.';
+
+            await sleep(300);
+            await checkpoint();
+            printLog('✨ Portfolio analyzed successfully! Compiling dashboard...', 'success');
+
+            container.innerHTML = `
+                <div id="dashboard" class="card dashboard-card">
+                    <div class="dashboard-header">
+                        <div>
+                            <h2>Portfolio risk snapshot</h2>
+                            <span class="dashboard-subtitle">${pricingStatus}</span>
+                        </div>
+                    </div>
+
+                    <!-- 1. Risk Alert Messages (Moved to Top) -->
+                    ${alerts.length > 0 ? `<div style="margin-bottom: 1.5rem;">${alerts.map(a => a.html).join('')}</div>` : ''}
+
+                    <!-- 2. Core Metrics Grid (Now below alerts) -->
+                    <div class="stats-grid" style="margin-bottom: 1.5rem;">
+                        <div class="stat-box">
+                            <span class="stat-label">${hasUnpricedAssets ? 'Priced Asset Value' : 'Total Asset Value'}</span>
+                            <span class="stat-value">$${totalCurrentValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">${hasUnpricedAssets ? 'Priced Assets Profit / Loss' : 'Overall Profit / Loss'}</span>
+                            <span class="stat-value ${hasAnyPriced ? totalPLClass : 'neutral'}">
+                                ${hasAnyPriced
+                                    ? `${totalPLSign}$${Math.abs(totalProfitLoss).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                       <span style="font-size: 1.1rem; font-weight: 500;">(${totalPLSign === '+' ? '+' : '-'}${Math.abs(totalProfitLossPct).toFixed(1)}%)</span>`
+                                    : 'N/A'}
+                            </span>
+                            ${hasUnpricedAssets
+                                ? `<span class="metric-note">${hasAnyPriced ? 'P/L excludes unpriced positions.' : 'No priced positions are available for P/L.'}</span>`
+                                : ''}
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">Overall Portfolio Risk</span>
+                            <span class="stat-value ${riskClass}">${riskLevel}</span>
+                        </div>
+                    </div>
+
+                    <!-- 3. Total Security and Trust Scores Grid (New section below core metrics) -->
+                    <div class="stats-grid" style="margin-bottom: 2rem; background: rgba(255,255,255,0.01); border: 1px dashed var(--border); border-radius: 10px; padding: 0.5rem 0;">
+                        <div class="stat-box">
+                            <span class="stat-label" style="text-transform:uppercase; letter-spacing:0.5px;">Total Coin Score</span>
+                            <span class="stat-value" style="color: ${coinWeightedAvg >= 80 ? '#4caf7d' : coinWeightedAvg >= 60 ? '#e6b84a' : '#e05555'};">${coinWeightedAvg}/100</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label" style="text-transform:uppercase; letter-spacing:0.5px;">Total Custody Score</span>
+                            <span class="stat-value" style="color: ${custodyWeightedAvg >= 70 ? '#4caf82' : custodyWeightedAvg >= 50 ? '#c8a84b' : '#c0554a'};">${custodyWeightedAvg}/100</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label" style="text-transform:uppercase; letter-spacing:0.5px;">Total Portfolio Score</span>
+                            <span class="stat-value" style="color: ${!hasAnyPriced ? 'var(--text-muted)' : totalPortfolioScore >= 85 ? '#4caf7d' : totalPortfolioScore >= 75 ? '#8bc34a' : totalPortfolioScore >= 50 ? '#e6b84a' : '#e05555'};">
+                                ${hasAnyPriced && totalCurrentValue > 0 ? totalPortfolioScore + '/100' : 'N/A'}
+                            </span>
+                            <span class="stat-label" style="font-size: 0.75rem; margin-top: 0.25rem; color: var(--text-muted);">${hasAnyPriced && totalCurrentValue > 0 ? 'Base: ' + basePortfolioScore + ', Penalties: ' + totalPenalty : 'Insufficient data'}</span>
+                        </div>
+                    </div>
+
+                    <!-- Asset Details Table -->
+                    <h3 style="margin-top: 2rem; margin-bottom: 1rem;">💼 Holdings and Live Market Valuation</h3>
+                    <div style="overflow-x: auto;">
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>Asset</th>
+                                    <th>Quantity</th>
+                                    <th>Market Value</th>
+                                    <th>Avg Buy Price</th>
+                                    <th>Live Price</th>
+                                    <th>Allocation Weight</th>
+                                    <th>Unrealized P&L</th>
+                                    <th>Location</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${assetRowsHtml}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Custody and Storage Distribution -->
+                    <h3 style="margin-top: 2rem; margin-bottom: 1rem;">🏦 Storage and Custody Breakdown</h3>
+                    <div class="stats-grid">
+                        ${locationsHtml}
+                    </div>
+
+                    <!-- Export Button at the very bottom -->
+                    <div style="display: flex; justify-content: center; margin-top: 2.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border);">
+                        <button onclick="exportToMarkdown()" class="export-markdown-btn">
+                            📥 Export Markdown Report
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            // Expose export data to global window object
+            window._lastExportData = {
+                holdings,
+                totalCurrentValue,
+                totalCostBasis,
+                pricedCostBasis,
+                totalProfitLoss,
+                totalProfitLossPct,
+                riskLevel,
+                coinWeightedAvg,
+                custodyWeightedAvg,
+                basePortfolioScore,
+                totalPenalty,
+                totalPortfolioScore,
+                locationsMap: riskLocationsMap,
+                riskBasisTotal,
+                alerts: alerts.map(a => (a.text || a.html.replace(/<\/?[^>]+(>|$)/g, "")).trim()), // prefer text field, fallback to HTML strip
+                coinResults: coinResults || {},
+                phase2Results: (typeof window._phase2Results !== 'undefined') ? window._phase2Results : {}
+            };
+
+            if (logDetails) logDetails.open = false;
+
+            // Smooth scroll to the top of the detailed analysis section
+            const scrollTarget = document.getElementById('coinAnalyzerContainer');
+            if (scrollTarget) {
+                scrollTarget.scrollIntoView({ behavior: 'smooth' });
+            }
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    if (logConsole) {
+                        printLog('⏹ Process killed by user.', 'error');
+                    }
+                } else {
+                    console.error('Portfolio analysis failed:', err);
+                    if (logConsole) {
+                        printLog(`Critical error: ${err.message}. Operation aborted, please try again.`, 'error');
+                    }
+                }
+            } finally {
+                // Hide Pause + Kill buttons, re-enable Analyze button
+                const _pauseBtn = document.getElementById('pauseBtn');
+                const _killBtn = document.getElementById('killBtn');
+                const _processBtn = document.getElementById('processBtn');
+                if (_processBtn) _processBtn.setAttribute('aria-busy', 'false');
+                if (_pauseBtn) {
+                    _pauseBtn.style.display = 'none';
+                    _pauseBtn.disabled = false;
+                    _pauseBtn.innerText = '⏸';
+                    _pauseBtn.title = 'Pause';
+                }
+                if (_killBtn) {
+                    _killBtn.style.display = 'none';
+                    _killBtn.disabled = false;
+                    _killBtn.innerText = '⏹';
+                    _killBtn.title = 'Kill Process';
+                }
+                if (_processBtn) _processBtn.disabled = false;
+                // Release all flags FIRST
+                _isProcessing = false;
+                _killed = false;
+                _pausePromise = null;
+                _pauseResolve = null;
+                entryControls.forEach(({ element, wasDisabled }) => { element.disabled = wasDisabled; });
+                // Force re-enable and validate
+                if (typeof validateForm === 'function') validateForm();
+                if (_processBtn) {
+                    const rows = document.querySelectorAll('#tableBody tr');
+                    let ok = rows.length > 0;
+                    rows.forEach(row => {
+                        row.querySelectorAll('input, select').forEach(input => {
+                            if (!input.value.trim()) ok = false;
+                            if (input.name === 'quantity' || input.name === 'average_buy_price') {
+                                const numericValue = Number(input.value);
+                                if (!Number.isFinite(numericValue) || numericValue <= 0) ok = false;
+                            }
+                        });
+                    });
+                    _processBtn.disabled = !ok;
+                }
+            }
+        }
+
+        // Helper to escape pipe characters in Markdown tables
+        function mdSafe(s) {
+            return String(s).replace(/\|/g, '\\|');
+        }
+
+        // Helper to export portfolio analysis as Markdown
+        function exportToMarkdown() {
+            const data = window._lastExportData;
+            if (!data) return;
+
+            const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            
+            let md = `# Portfolio Analytics Dashboard\n`;
+            md += `*Generated on: ${dateStr}*\n\n`;
+
+            md += `## 🛡️ Security and Quality Scores\n`;
+            md += `* **Total Coin Score:** ${data.coinWeightedAvg}/100\n`;
+            md += `* **Total Custody Score:** ${data.custodyWeightedAvg}/100\n`;
+            md += `* **Total Portfolio Score:** ${data.totalPortfolioScore}/100 (Base: ${data.basePortfolioScore}, Penalties: ${data.totalPenalty})\n\n`;
+
+            md += `## 📊 Core Financial Metrics\n`;
+            const hasUnpricedInExport = data.holdings.some(h => h.isUnpriced);
+            const hasPricedInExport = data.holdings.some(h => !h.isUnpriced);
+            const pricedCostBasisForExport = Number.isFinite(data.pricedCostBasis)
+                ? data.pricedCostBasis
+                : data.holdings
+                    .filter(h => !h.isUnpriced)
+                    .reduce((sum, h) => sum + h.costBasis, 0);
+            const unpricedCostBasisForExport = Math.max(0, data.totalCostBasis - pricedCostBasisForExport);
+            md += `* **${hasUnpricedInExport ? 'Priced Asset Value' : 'Total Asset Value'}:** $${data.totalCurrentValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n`;
+            if (hasUnpricedInExport) {
+                md += `* **Priced Asset Cost Basis:** $${pricedCostBasisForExport.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n`;
+                md += `* **Unpriced Asset Cost Basis:** $${unpricedCostBasisForExport.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} (excluded from P&L)\n`;
+            }
+            if (hasPricedInExport) {
+                const formattedPL = (data.totalProfitLoss < 0
+                    ? `-$${Math.abs(data.totalProfitLoss).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
+                    : `$${data.totalProfitLoss.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`);
+                md += `* **${hasUnpricedInExport ? 'Priced Assets Profit / Loss' : 'Overall Profit / Loss'}:** ${formattedPL} (${data.totalProfitLossPct >= 0 ? '+' : ''}${data.totalProfitLossPct.toFixed(1)}%)\n`;
+            } else {
+                md += `* **Priced Assets Profit / Loss:** N/A (no priced assets)\n`;
+            }
+            md += `* **Overall Portfolio Risk:** ${data.riskLevel}\n\n`;
+
+            if (data.alerts && data.alerts.length > 0) {
+                md += `## ⚠️ Risk Warnings and Observations\n`;
+                data.alerts.forEach(alert => {
+                    md += `* ${alert}\n`;
+                });
+                md += `\n`;
+            }
+
+            md += `## 💼 Holdings and Live Market Valuation\n`;
+            md += `| Asset | Quantity | Market Value | Avg Buy Price | Live Price | Price Source | Last Updated | Allocation Weight | Unrealized P&L | Location |\n`;
+            md += `| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n`;
+            data.holdings.forEach(h => {
+                const plSign = h.profitLoss >= 0 ? "+" : "-";
+                const valStr = h.isUnpriced ? "Unpriced" : `$${h.currentValue.toFixed(2)}`;
+                const liveStr = h.isUnpriced ? "Unpriced" : formatPrice(h.currentPrice);
+                const updatedStr = h.priceUpdatedAt ? new Date(h.priceUpdatedAt).toISOString() : 'N/A';
+                const sourceStr = h.priceSource || 'N/A';
+                const plStr = h.isUnpriced ? "N/A" : `${plSign}$${Math.abs(h.profitLoss).toFixed(2)} (${plSign}${Math.abs(h.profitLossPct).toFixed(1)}%)`;
+                const weightStr = h.isUnpriced ? 'N/A' : `${computeWeight(h.currentValue, data.totalCurrentValue).toFixed(1)}%`;
+
+                md += `| **${mdSafe(h.coin)}** | ${h.quantity} | ${valStr} | $${h.avgBuyPrice} | ${liveStr} | ${sourceStr} | ${updatedStr} | ${weightStr} | ${plStr} | ${mdSafe(h.location)} |\n`;
+            });
+            md += `\n`;
+
+            md += `**Price Data Freshness:** Exchange prices use the timestamp of the exchange batch request. CoinGecko prices use the fetch time; CoinGecko detail data is also validated with its \`last_updated\` metadata when available.\n\n`;
+
+            // Individual Coin Analysis (Detailed)
+            if (data.coinResults && Object.keys(data.coinResults).length > 0) {
+                md += `## 🪙 Individual Coin Analysis\n\n`;
+
+                // Aggregate per-coin values from holdings (sum duplicates)
+                const coinAggregates = {};
+                data.holdings.forEach(h => {
+                    if (!coinAggregates[h.coin]) {
+                        coinAggregates[h.coin] = {
+                            coin: h.coin,
+                            totalValue: 0,
+                            totalCost: 0,
+                            totalProfitLoss: 0,
+                            weightPct: 0,
+                            pricedCount: 0,
+                            unpricedCount: 0,
+                        };
+                    }
+                    if (!h.isUnpriced) {
+                        coinAggregates[h.coin].pricedCount++;
+                        coinAggregates[h.coin].totalValue += h.currentValue;
+                        coinAggregates[h.coin].totalCost += h.costBasis;
+                        coinAggregates[h.coin].totalProfitLoss += h.profitLoss;
+                    } else {
+                        coinAggregates[h.coin].unpricedCount++;
+                    }
+                });
+                // Convert to array and sort by aggregated market value descending
+                const coinOrder = Object.values(coinAggregates)
+                    .map(c => ({
+                        ...c,
+                        weightPct: data.totalCurrentValue > 0 ? (c.totalValue / data.totalCurrentValue) * 100 : 0,
+                        profitLossPct: c.totalCost > 0 ? (c.totalProfitLoss / c.totalCost) * 100 : 0,
+                    }))
+                    .sort((a, b) => b.totalValue - a.totalValue);
+
+                coinOrder.forEach(agg => {
+                    const coinResult = data.coinResults[agg.coin];
+                    const phase2Result = data.phase2Results ? data.phase2Results[agg.coin] : null;
+                    
+                    if (!coinResult) return;
+
+                    const p2Score = phase2Result ? phase2Result.totalScore : 0;
+                    const fundamental = coinResult.score;
+                    const combinedScore = calculateFinalCoinScore(fundamental, p2Score, coinResult, phase2Result);
+                    const evidenceAdjustedFundamental = calculateFinalCoinScore(fundamental, 0, coinResult);
+                    const finalCeiling = Math.min(getCoinScoreCeiling(coinResult, phase2Result), getMissingDataCeiling(coinResult, phase2Result));
+                    const riskLevel = getCoinRiskLevel(combinedScore, coinResult, phase2Result);
+                    
+                    md += `### ${agg.coin} (Final Score: ${combinedScore}/100) ${coinResult.category}\n`;
+                    md += `**Category:** ${coinResult.category}  \n`;
+                    md += `**Fundamental Score:** ${evidenceAdjustedFundamental}/100 (Phase 1 evidence/risk caps applied)  \n`;
+                    md += `**Raw Fundamental Model Score:** ${fundamental}/100 (before data-coverage caps; not a probability of safety)  \n`;
+                    md += `**Advanced Analysis Adjustment:** ${p2Score >= 0 ? '+' : ''}${p2Score} points  \n`;
+                    md += `**Final Score Calculation:** Raw ${fundamental} ${p2Score >= 0 ? '+' : '-'} ${Math.abs(p2Score)} adjustment, clamped to 0–${finalCeiling} = ${combinedScore}/100. Custody is separate.  \n`;
+                    md += `**Risk Level:** ${riskLevel}  \n`;
+                    if (agg.pricedCount === 0) {
+                        md += `**Market Value:** Unpriced  \n`;
+                        md += `**Unrealized P&L:** N/A (no priced holdings)\n\n`;
+                    } else {
+                        const partialNote = agg.unpricedCount > 0 ? ' (priced holdings only; unpriced holdings excluded)' : '';
+                        md += `**Market Value:** $${agg.totalValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}${partialNote}  \n`;
+                        const plSignInd = agg.totalProfitLoss >= 0 ? '+' : '-';
+                        md += `**Unrealized P&L:** ${plSignInd}$${Math.abs(agg.totalProfitLoss).toFixed(2)} (${plSignInd}${Math.abs(agg.profitLossPct).toFixed(1)}%)${partialNote}\n\n`;
+                    }
+
+                    // Phase 1 Fundamental Metrics
+                    md += `**Fundamental Metrics:**\n`;
+                    coinResult.signals.forEach(signal => {
+                        md += `- ${signal}\n`;
+                    });
+                    md += `\n`;
+
+                    // Phase 2 Advanced Analysis
+                    if (phase2Result) {
+                        md += `**🔬 Advanced Analysis:**\n`;
+                        
+                        if (phase2Result.tokenomics && phase2Result.tokenomics.signals.length > 0) {
+                            phase2Result.tokenomics.signals.forEach(s => {
+                                md += `- **Tokenomics:** ${s}\n`;
+                            });
+                        }
+                        
+                        if (phase2Result.security && phase2Result.security.signals.length > 0) {
+                            phase2Result.security.signals.forEach(s => {
+                                md += `- **Security:** ${s}\n`;
+                            });
+                        }
+                        
+                        if (phase2Result.liquidity && phase2Result.liquidity.signals.length > 0) {
+                            phase2Result.liquidity.signals.forEach(s => {
+                                md += `- **Liquidity:** ${s}\n`;
+                            });
+                        }
+                        
+                        if (phase2Result.holders && phase2Result.holders.signals.length > 0) {
+                            phase2Result.holders.signals.forEach(s => {
+                                // Suppress uninformative 'Community score: 0/100' lines
+                                if (s.includes('Community score: 0/100')) return;
+                                md += `- **Holders:** ${s}\n`;
+                            });
+                        }
+
+                        if (phase2Result.tvl && phase2Result.tvl.signals.length > 0) {
+                            phase2Result.tvl.signals.forEach(s => {
+                                md += `- **TVL:** ${s}\n`;
+                            });
+                        }
+                        const missingForReport = countMissingDataChecks(coinResult, phase2Result);
+                        if (missingForReport > 0) {
+                            md += `- **Data Confidence:** ${missingForReport} check(s) produced no evidence; score ceiling ${getMissingDataCeiling(coinResult, phase2Result)}/100\n`;
+                        }
+                        md += `\n`;
+                    }
+                    
+                    md += `---\n\n`;
+                });
+            }
+
+            // === Detailed Custody and Storage Analysis ===
+            if (data.locationsMap && Object.keys(data.locationsMap).length > 0) {
+                md += `## 🏦 Storage and Custody Breakdown\n\n`;
+                
+                Object.entries(data.locationsMap).forEach(([loc, val]) => {
+                    const pct = (data.riskBasisTotal || data.totalCurrentValue) > 0
+                        ? (val / (data.riskBasisTotal || data.totalCurrentValue)) * 100
+                        : 0;
+                    
+                    // Use the same resolution and confidence semantics as the custody cards and alerts.
+                    const custodyAssessment = typeof getCustodyAssessment === 'function'
+                        ? getCustodyAssessment(loc)
+                        : null;
+                    const custodyDetails = custodyAssessment?.data || null;
+                    
+                    md += `### ${mdSafe(loc)} (${pct.toFixed(1)}% of portfolio)\n`;
+                    md += `**Allocated Value:** $${val.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n\n`;
+                    
+                    if (custodyDetails) {
+                        md += `**Type:** ${custodyDetails.type}  \n`;
+                        const custodyScoreLine = custodyAssessment.isDefunct
+                            ? 'Defunct (scored 0/100: balance is a recovery claim, not custody)'
+                            : custodyAssessment.isScored
+                                ? `${custodyDetails.score}/100`
+                                : `N/A (neutral ${custodyDetails.score}/100 used internally)`;
+                        md += `**Security Score:** ${custodyScoreLine}  \n`;
+                        const custodyModel = custodyDetails.selfCustodial === true
+                            ? '🔑 Self-custodial (you control keys)'
+                            : custodyDetails.selfCustodial === false
+                                ? '🏦 Custodial (third party holds keys)'
+                                : '❓ Unverified / requires confirmation';
+                        md += `**Custody Model:** ${custodyModel}\n\n`;
+                        
+                        if (custodyDetails.signals && custodyDetails.signals.length > 0) {
+                            md += `**Security Assessment:**\n`;
+                            custodyDetails.signals.forEach(signal => {
+                                md += `- ${signal}\n`;
+                            });
+                        }
+                    } else {
+                        md += `⚠️ Detailed security assessment not available for this location.\n`;
+                    }
+                    
+                    md += `\n---\n\n`;
+                });
+            }
+
+            // ====== Portfolio Summary Statistics ==========
+            if (data.holdings && data.holdings.length > 0) {
+                md += `## 📈 Portfolio Summary\n\n`;
+                
+                // Aggregate coin P&L and cost basis across duplicate holdings
+                const summaryAggregates = {};
+                data.holdings.forEach(h => {
+                    if (h.isUnpriced) return;
+                    if (!summaryAggregates[h.coin]) {
+                        summaryAggregates[h.coin] = { coin: h.coin, totalCost: 0, totalProfitLoss: 0 };
+                    }
+                    summaryAggregates[h.coin].totalCost += h.costBasis;
+                    summaryAggregates[h.coin].totalProfitLoss += h.profitLoss;
+                });
+                const summaryCoins = Object.values(summaryAggregates)
+                    .filter(c => !isAssetStablecoin(c.coin))
+                    .map(c => ({
+                        coin: c.coin,
+                        profitLossPct: c.totalCost > 0 ? (c.totalProfitLoss / c.totalCost) * 100 : 0,
+                    }));
+
+                // Best and Worst performers (exclude stablecoins for meaningful performance metrics)
+                if (summaryCoins.length > 0) {
+                    const sortedByPL = [...summaryCoins].sort((a, b) => b.profitLossPct - a.profitLossPct);
+                    const best = sortedByPL[0];
+                    const worst = sortedByPL[sortedByPL.length - 1];
+                    const bestSign = best.profitLossPct >= 0 ? '+' : '-';
+                    const worstSign = worst.profitLossPct >= 0 ? '+' : '-';
+                    md += `**Best Performing Coin:** ${best.coin} (${bestSign}${Math.abs(best.profitLossPct).toFixed(1)}%)  \n`;
+                    md += `**Worst Performing Coin:** ${worst.coin} (${worstSign}${Math.abs(worst.profitLossPct).toFixed(1)}%)  \n`;
+                } else if (data.holdings.filter(h => !h.isUnpriced).length > 0) {
+                    md += `**Performance Note:** All non-stable assets are down or unpriced.  \n`;
+                }
+                
+                // Highest and Lowest scoring coins use the same finalscore calculation as the cards.
+                if (data.coinResults && Object.keys(data.coinResults).length > 0) {
+                    const uniqueScoredCoins = [...new Set(data.holdings.map(h => h.coin))]
+                        .map(coin => {
+                            const coinResult = data.coinResults[coin];
+                            if (!coinResult || !Number.isFinite(coinResult.score)) return null;
+                            const fundamental = coinResult.score;
+                            const p2Score = data.phase2Results?.[coin]?.totalScore || 0;
+                            const finalScore = calculateFinalCoinScore(
+                                fundamental,
+                                p2Score,
+                                coinResult,
+                                data.phase2Results?.[coin]
+                            );
+                            return { coin, score: finalScore };
+                        })
+                        .filter(Boolean)
+                        .sort((a, b) => b.score - a.score);
+                    
+                    if (uniqueScoredCoins.length > 0) {
+                        const highest = uniqueScoredCoins[0];
+                        const lowest = uniqueScoredCoins[uniqueScoredCoins.length - 1];
+                        md += `**Highest Scoring Coin:** ${highest.coin} (${Math.min(100, highest.score)}/100)  \n`;
+                        md += `**Lowest Scoring Coin:** ${lowest.coin} (${Math.min(100, lowest.score)}/100)  \n`;
+                    }
+                }
+                
+                // Asset count = show unique coins count for clarity
+                const uniqueCoinCount = new Set(data.holdings.map(h => h.coin)).size;
+                md += `**Total Assets:** ${uniqueCoinCount}  \n`;
+                md += `**${hasUnpricedInExport ? 'Total Recorded Cost Basis' : 'Total Cost Basis'}:** $${data.totalCostBasis.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}  \n`;
+                if (hasUnpricedInExport) {
+                    md += `**Priced Asset Cost Basis:** $${pricedCostBasisForExport.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}  \n`;
+                    md += `**Unpriced Asset Cost Basis (excluded from P&L):** $${unpricedCostBasisForExport.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}  \n`;
+                }
+                md += `**${hasUnpricedInExport ? 'Priced Portfolio Value' : 'Current Portfolio Value'}:** $${data.totalCurrentValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n\n`;
+            }
+
+            const logConsole = document.getElementById('logConsole');
+            if (logConsole && logConsole.children.length > 0) {
+                const logLines = Array.from(logConsole.children)
+                    .map(logItem => logItem.textContent.trim())
+                    .filter(Boolean);
+                if (logLines.length > 0) {
+                    md += `## 🖥️ Terminal Logs\n\n\`\`\`text\n`;
+                    md += `${logLines.join('\n')}\n`;
+                    md += `\`\`\`\n\n`;
+                }
+            }
+
+            // Download trigger
+            const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.setAttribute("download", `portfolio_report_${new Date().toISOString().slice(0,10)}.md`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            // Release the blob URL so repeated exports do not leak memory
+            setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+        }
+
+        // Initialize state on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = ''; // Clear initial default row
+
+            // Add basic 3-coin portfolio
+            addTableRowData("BTC", "0.25", "62500", "Ledger");
+            addTableRowData("ETH", "1.8", "3100", "Metamask");
+            addTableRowData("FDUSD", "1000", "1", "Binance"); // Add a stablecoin example
+
+            updateDeleteButtons();
+            validateForm();
+            // Removed automatic processData() on load so user must click Analyze button
+
+            // Add event listeners for validation
+            document.getElementById('tableBody').addEventListener('input', validateForm);
+            document.getElementById('tableBody').addEventListener('change', validateForm);
+
+            // Prevent negative numbers in quantity and average_buy_price
+            document.getElementById('tableBody').addEventListener('input', (event) => {
+                if (event.target.type === 'number' && event.target.value < 0) {
+                    event.target.value = 0;
+                }
+            });
+        });
+
+        /* =====================================================================
+           THEME TOGGLE: Dark/Light Mode with localStorage
+           ===================================================================== */
+        (function() {
+            // Load saved theme on page load
+            let savedTheme = 'dark';
+            try {
+                const storedTheme = localStorage.getItem('portfolio_theme');
+                savedTheme = storedTheme === 'light' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            } catch (e) { /* storage unavailable: keep dark default */ }
+            updateToggleIcon(savedTheme);
+        })();
+
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            try {
+                localStorage.setItem('portfolio_theme', newTheme);
+            } catch (e) { /* storage unavailable: theme still changes for this session */ }
+            updateToggleIcon(newTheme);
+        }
+
+        function updateToggleIcon(theme) {
+            const btn = document.getElementById('themeToggle');
+            if (btn) {
+                btn.textContent = theme === 'dark' ? 'LIGHT' : 'DARK';
+                btn.title = theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+                btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+                btn.setAttribute('aria-pressed', theme === 'light' ? 'true' : 'false');
+            }
+        }
+    </script>
+</body>
+</html>
