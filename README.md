@@ -125,22 +125,6 @@ The project is written with future changes in mind. Coin analysis, custody asses
 
 This structure supports adaptation through maintained code changes; it does not automatically validate provider changes or refresh hardcoded assessments. The [`tests/`](tests/) directory contains scoring, custody, and browser regression checks to support updates.
 
-<details>
-<summary><strong>Running the checks</strong></summary>
-
-Node.js is required for the JavaScript tests. Browser checks require Python with Playwright and its Chromium browser already installed. Run these commands from the repository directory:
-
-```bash
-node --test tests/audit_regressions.test.js tests/scoring.test.js tests/custody.test.js
-python tests/audit_browser_regressions.py
-python tests/browser_smoke.py
-python tests/custody_browser_smoke.py
-```
-
-These checks use controlled fixtures. Passing them verifies covered application behavior, not live provider availability or market-data accuracy.
-
-</details>
-
 Corrections, new custody entries, and improvements to the scoring model are welcome through issues or pull requests. Include supporting sources and a reproducible example when reporting an incorrect assessment.
 
 ## Conclusion
