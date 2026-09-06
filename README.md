@@ -8,7 +8,7 @@ Enter your positions, run an analysis, and explore a breakdown of asset quality,
 
 Built with **HTML, CSS, and vanilla JavaScript**, the app runs in your browser without an account, wallet connection, backend, or build step.
 
-[Getting started](#getting-started) · [Features](#features) · [Understanding the scores](#understanding-the-scores) · [Built to evolve](#built-to-evolve) · [Disclaimer](#disclaimer)
+[Getting started](#getting-started) * [Features](#features) * [Understanding the scores](#understanding-the-scores) * [Built to evolve](#built-to-evolve) * [Disclaimer](#disclaimer)
 
 ## Getting started
 
