@@ -14,7 +14,7 @@ Built with **HTML, CSS, and vanilla JavaScript**, the app runs in your browser w
 
 1. Download or clone this repository.
 2. Open [`Analyzer.html`](Analyzer.html) in a modern browser with an internet connection.
-3. Enter each asset's symbol, quantity, average buy price in USD, and storage location—or load a demo portfolio.
+3. Enter each asset's symbol, quantity, average buy price in USD, and storage location or load a demo portfolio.
 4. Click **Analyze portfolio**, review the results, and export a report if you want to keep a copy.
 
 ## Features
