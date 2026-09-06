@@ -17,14 +17,6 @@ Built with **HTML, CSS, and vanilla JavaScript**, the app runs in your browser w
 3. Enter each asset's symbol, quantity, average buy price in USD, and storage location—or load a demo portfolio.
 4. Click **Analyze portfolio**, review the results, and export a report if you want to keep a copy.
 
-No npm installation is required. To serve the project locally instead, run this command from the repository directory with Python 3 installed:
-
-```bash
-python -m http.server 8000
-```
-
-Then open [localhost:8000/Analyzer.html](http://localhost:8000/Analyzer.html). This serves the static files; analysis still runs in the browser.
-
 ## Features
 
 > Screenshots illustrate example runs. Prices, scores, and some explanatory text reflect the version and data available when they were captured; current results may differ. See [Understanding the scores](#understanding-the-scores) for the current model's limitations.
