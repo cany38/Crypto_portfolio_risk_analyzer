@@ -66,9 +66,9 @@ Custody cards group holdings by storage location and show the allocated value, p
 
 ![Example custody cards showing wallet types, allocated values, scores, and assessment notes](docs/screenshots/custody-analysis.png)
 
-### 5. See the portfolio-wide picture
+### 5. See the picture portfolio picture
 
-The dashboard brings together total asset value, unrealized profit or loss, coin and custody scores, and an overall portfolio score. Warnings highlight conditions such as concentration in one location, high altcoin exposure, stablecoin-related risks, deep losses, and low-scoring assets.
+The dashboard brings together total asset value, unrealized profit or loss, coin and custody scores, and an overall portfolio score. Warnings highlight conditions such as concentration in one location, high altcoin exposure, stablecoin related risks, deep losses, and low scoring assets.
 
 Where a warning affects the portfolio score, its penalty is shown. Informational observations can appear without a deduction, helping distinguish a finding from its effect on the model.
 
@@ -78,32 +78,28 @@ Where a warning affects the portfolio score, its penalty is shown. Informational
 
 The detailed holdings table puts quantity, market value, average buy price, fetched price, allocation weight, unrealized P&L, and storage location side by side. A separate custody breakdown shows how much of the portfolio sits at each location.
 
-Estimated prices are identified, and positions without a usable price are reported as unavailable and excluded from P&L calculations. This avoids presenting missing prices as confirmed zero-value holdings.
-
 ![Holdings valuation table and storage allocation breakdown](docs/screenshots/holdings-and-custody-breakdown.png)
 
 ### 7. Export a readable Markdown report
 
-Download a `.md` snapshot containing the portfolio summary, warnings, holdings, custody breakdown, and detailed analysis. The report includes price-source information and timestamps where available, plus score-calculation details for closer review.
-
-Keep reports as dated records or open them in a Markdown viewer. Each export captures that run; previously downloaded reports do not update when the app or market data changes.
+Download a `.md` snapshot containing the portfolio summary, warnings, holdings, custody breakdown, and detailed analysis. The report includes price source information and timestamps where available, plus score calculation details for closer review.
 
 ![Exported Markdown report with scores, financial metrics, warnings, and a holdings table](docs/screenshots/markdown-report.png)
 
 ## Understanding the scores
 
-Scores are **rule-based estimates on a 0–100 scale**, not measured probabilities of safety or future performance. Higher values indicate fewer risks under the model's rules and available evidence.
+Scores are **rule based estimates on a 0-100 scale**, not measured probabilities of safety or future performance. Higher values indicate fewer risks under the model's rules and available evidence.
 
 | Result | What it represents |
 | --- | --- |
-| Fundamental Score | Value-weighted Phase 1 scores after evidence and risk caps. The raw model average is displayed separately. |
+| Fundamental Score | Value weighted Phase 1 scores after evidence and risk caps. The raw model average is displayed separately. |
 | Total Coin Score | Each asset's raw fundamental score plus its advanced adjustment, constrained by applicable caps, then weighted by position value. |
 | Total Custody Score | Value-weighted assessments of storage locations from the curated custody database. |
 | Total Portfolio Score | The rounded average of coin and custody scores, minus applicable warning penalties, with a minimum of zero. |
 
 The final coin calculation starts from the **raw** fundamental score, not the already capped Fundamental Score card. Custody is incorporated at the portfolio level. Overlapping penalties with the same underlying warning key are counted once, using the largest deduction.
 
-Security incidents, asset profiles such as memecoins, and incomplete data can limit the maximum score. No matching hack record is not proof of safety, and missing developer metadata is not proof that a project was abandoned. TVL requires a matching CoinGecko entity ID; a matching ticker alone is insufficient. Supply ratios and historical holder notes do not establish future unlock risk or current ownership concentration.
+Security incidents, asset profiles such as memecoins, and incomplete data can limit the maximum score. No matching hack record is not proof of safety, and missing developer metadata is not proof that a project was abandoned. TVL requires a matching CoinGecko entity ID, a matching ticker alone is insufficient. Supply ratios and historical holder notes do not establish future unlock risk or current ownership concentration.
 
 ## Data and privacy
 
@@ -123,7 +119,7 @@ The project is written with future changes in mind. Coin analysis, custody asses
 | [`js/alerts.js`](js/alerts.js) | Portfolio warnings and penalty rules. |
 | [`css/style.css`](css/style.css) | Layout, responsive styling, and themes. |
 
-This structure supports adaptation through maintained code changes; it does not automatically validate provider changes or refresh hardcoded assessments. The [`tests/`](tests/) directory contains scoring, custody, and browser regression checks to support updates.
+This structure supports adaptation through maintained code changes; it does not automatically validate provider changes or refresh hardcoded assessments.
 
 Corrections, new custody entries, and improvements to the scoring model are welcome through issues or pull requests. Include supporting sources and a reproducible example when reporting an incorrect assessment.
 
