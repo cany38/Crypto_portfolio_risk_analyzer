@@ -1,7 +1,5 @@
 # Crypto Portfolio Risk Analyzer
 
-**Understand what you hold, where you hold it, and which risks deserve a closer look.**
-
 A portfolio's value tells only part of its story. Project fundamentals, security incidents, asset concentration, and the wallets or exchanges used for storage all affect its risk. Crypto Portfolio Risk Analyzer was built to bring those factors into one readable view, helping users review their holdings and identify questions worth investigating further.
 
 Enter your positions, run an analysis, and explore a breakdown of asset quality, custody, valuation, and portfolio warnings. Each score comes with supporting observations, and the results can be exported as a Markdown report.
